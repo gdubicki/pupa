@@ -89,7 +89,8 @@ command -v git >/dev/null 2>&1 || { log >&2 "git is not installed, ${PURPLE}abor
 
 # Find the OS codename
 distr=$(lsb_release --id -s)
-rel=$(lsb_release --codename -s)
+codename=$(lsb_release --codename -s)
+rel=$(lsb_release --release -s)
 # Version of Puppet Platform
 platform_ver=5
 # Where this script is located
@@ -108,22 +109,51 @@ function papply {
 }
 
 function install_puppetrepo {
-  if test ! -f '/etc/apt/sources.list.d/puppet5.list'; then
-    log "Fetching Puppet ${platform_ver} release package for ${distr^} ${rel^}"
-    if debugging; then
-      curl -L -O "https://apt.puppetlabs.com/puppet${platform_ver}-release-${rel}.deb"
+  case "$distr" in
+  debian)
+    if test ! -f '/etc/apt/sources.list.d/puppet5.list'; then
+      log "Fetching Puppet ${platform_ver} release package for ${distr^} ${codename^}"
+      if debugging; then
+        curl -L -O "https://apt.puppetlabs.com/puppet${platform_ver}-release-${codename}.deb"
+      else
+        curl -s -L -O "https://apt.puppetlabs.com/puppet${platform_ver}-release-${codename}.deb"
+      fi
+      log "Installing Puppetlabs APT sources entries for ${distr^} ${codename^}"
+      if debugging; then
+        dpkg -i "puppet${platform_ver}-release-${codename}.deb"
+      else
+        dpkg -i "puppet${platform_ver}-release-${codename}.deb" >/dev/null 2>&1
+      fi
     else
-      curl -s -L -O "https://apt.puppetlabs.com/puppet${platform_ver}-release-${rel}.deb"
+      log "Puppetlabs APT source entries already installed, skipping"
     fi
-    log "Installing Puppetlabs APT sources entries for ${distr^} ${rel^}"
-    if debugging; then
-      dpkg -i "puppet${platform_ver}-release-${rel}.deb"
+    ;;
+  CentOS)
+    log "We're running on ${distr} version ${rel^}"
+    if test ! -f '/etc/yum.repos.d/puppet5.repo'; then
+      IFS='.' read -ra release <<< "$rel"
+      maj_release=${release[0]}
+      if debugging; then
+        curl -L -O "http://yum.puppetlabs.com/puppet${platform_ver}/puppet${platform_ver}-release-el-${maj_release}.noarch.rpm"
+      else
+        curl -s -L -O "http://yum.puppetlabs.com/puppet${platform_ver}/puppet${platform_ver}-release-el-${maj_release}.noarch.rpm"
+      fi
+      log "Installing Puppetlabs Yum repo for ${distr^} ${maj_release^}"
+      if debugging; then
+        rpm -ivh "puppet${platform_ver}-release-el-${maj_release}.noarch.rpm"
+      else
+        rpm -i "puppet${platform_ver}-release-el-${maj_release}.noarch.rpm" >/dev/null 2>&1
+      fi
     else
-      dpkg -i "puppet${platform_ver}-release-${rel}.deb" >/dev/null 2>&1
+      log "Puppetlabs Yum repo already installed, skipping"
     fi
-  else
-    log "Puppetlabs APT source entries already installed, skipping"
-  fi
+    ;;
+  *)
+    log >&2 "Distribution ${distr} not supported, ${PURPLE}aborting${RESET}" CRIT;
+    exit 1;
+    ;;
+
+  esac
 }
 
 function refresh_apt_sources {
@@ -136,15 +166,37 @@ function refresh_apt_sources {
   log "Done refreshing APT sources"
 }
 
+function clear_yum_cache {
+  log "Clearing Yum cache"
+  if debugging; then
+    yum clean all
+  else
+    yum clean all > /dev/null 2>&1
+  fi
+  log "Done clearing Yum cache"
+}
+
 function setup_puppet {
   log "Installing and configuring Puppet"
   if test ! -f "${plbin}/puppet"; then
-    refresh_apt_sources
-    if debugging; then
-      apt install puppet-agent
-    else
-      DEBIAN_FRONTEND=noninteractive apt install -qq --yes --force-yes puppet-agent > /dev/null 2>&1
-    fi
+    case $distr in
+      debian)
+        refresh_apt_sources
+        if debugging; then
+          apt install puppet-agent
+        else
+          DEBIAN_FRONTEND=noninteractive apt install -qq --yes --force-yes puppet-agent > /dev/null 2>&1
+        fi
+        ;;
+      CentOS)
+        clear_yum_cache
+        if debugging; then
+          yum -y install puppet-agent
+        else
+          yum -y install puppet-agent
+        fi
+        ;;
+    esac
   fi
   papply "${pupa_dir}/manifests/puppet.pp"
   log "Successfully installed and configured Puppet"
