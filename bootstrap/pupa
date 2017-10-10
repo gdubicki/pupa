@@ -208,6 +208,12 @@ function setup_hiera {
   log "Successfully installed and configured Hiera"
 }
 
+function setup_fileserver {
+  log "Installing and configuring Puppet fileserver"
+  papply "${pupa_dir}/manifests/fileserver.pp"
+  log "Successfully installed and configured Puppet fileserver"
+}
+
 function setup_r10k {
   log "Installing and configuring r10k"
   papply "${pupa_dir}/manifests/r10k.pp"
@@ -223,6 +229,7 @@ function setup_mcollective {
 function main {
   install_puppetrepo
   setup_puppet
+  setup_fileserver
   setup_hiera
   setup_r10k
   setup_mcollective
